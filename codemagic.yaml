@@ -1,57 +1,51 @@
 workflows:
-  ios-unsigned:
-    name: Build unsigned iOS IPA
+  ios-build:
+    name: Build iOS IPA
     max_build_duration: 60
     instance_type: mac_mini_m2
 
     environment:
       xcode: latest
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.jasonquiles.ShadingTrigger
 
     scripts:
-      - name: Archive app and package unsigned IPA
+      - name: Set up project
         script: |
           set -euo pipefail
-
-          PROJECT_PATH="$(find . -maxdepth 5 \\( -name '*.xcworkspace' -o -name '*.xcodeproj' \\) -print -quit)"
+          
+          # Find the Xcode project
+          PROJECT_PATH=$(find . -maxdepth 3 \( -name '*.xcodeproj' -o -name '*.xcworkspace' \) -print -quit)
           if [ -z "$PROJECT_PATH" ]; then
-            echo "ERROR: No .xcodeproj or .xcworkspace was found. Add your iOS Xcode project to the repository root (or a subfolder) before building."
+            echo "ERROR: No .xcodeproj found"
             exit 1
           fi
+          echo "Found project: $PROJECT_PATH"
+          
+          # Get the scheme name
+          SCHEME=$(xcodebuild -list -project "$PROJECT_PATH" | grep -A 1 "Schemes:" | tail -1 | xargs)
+          echo "Using scheme: $SCHEME"
+          
+          # Set variables for later use
+          echo "PROJECT_PATH=$PROJECT_PATH" >> $CM_ENV
+          echo "SCHEME=$SCHEME" >> $CM_ENV
 
-          if [[ "$PROJECT_PATH" == *.xcworkspace ]]; then
-            CONTAINER=(-workspace "$PROJECT_PATH")
-          else
-            CONTAINER=(-project "$PROJECT_PATH")
-          fi
-
-          xcodebuild -list -json "${CONTAINER[@]}" > /tmp/xcode-list.json
-          SCHEME="${XCODE_SCHEME:-$(/usr/bin/python3 -c 'import json; d=json.load(open("/tmp/xcode-list.json")); print((d.get("workspace") or d.get("project") or {}).get("schemes", [""])[0])')}"
-          if [ -z "$SCHEME" ]; then
-            echo "ERROR: No shared Xcode scheme was found. Share a scheme in Xcode or set XCODE_SCHEME in Codemagic."
-            exit 1
-          fi
-
-          mkdir -p build
-          xcodebuild "${CONTAINER[@]}" \
+      - name: Archive and export IPA
+        script: |
+          set -euo pipefail
+          
+          # Build archive
+          xcodebuild archive \
+            -project "$PROJECT_PATH" \
             -scheme "$SCHEME" \
             -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$PWD/build/ShadingTrigger.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO \
-            archive
-
-          APP_PATH="$(find build/ShadingTrigger.xcarchive/Products/Applications -maxdepth 1 -name '*.app' -print -quit)"
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: Xcode archive completed but no .app was produced."
-            exit 1
-          fi
-
-          rm -rf build/Payload
-          mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/
-          (cd build && /usr/bin/zip -qry ShadingTrigger-unsigned.ipa Payload)
-
-    artifacts:
-      - build/*.ipa
-      - build/*.xcarchive
+            -archivePath ./build/ShadingTrigger.xcarchive \
+            -allowProvisioningUpdates \
+            CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM=YOUR_TEAM_ID
+          
+          # Export IPA
+          cat > ExportOptions.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple
