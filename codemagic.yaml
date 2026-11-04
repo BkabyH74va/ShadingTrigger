@@ -1,51 +1,40 @@
 workflows:
   ios-build:
-    name: Build iOS IPA
+    name: Build unsigned iOS IPA
     max_build_duration: 60
     instance_type: mac_mini_m2
 
     environment:
       xcode: latest
-      ios_signing:
-        distribution_type: development
-        bundle_identifier: com.jasonquiles.ShadingTrigger
 
     scripts:
-      - name: Set up project
+      - name: Build unsigned IPA
         script: |
           set -euo pipefail
           
-          # Find the Xcode project
-          PROJECT_PATH=$(find . -maxdepth 3 \( -name '*.xcodeproj' -o -name '*.xcworkspace' \) -print -quit)
+          # Find project
+          PROJECT_PATH=$(find . -maxdepth 3 -name '*.xcodeproj' -print -quit)
           if [ -z "$PROJECT_PATH" ]; then
             echo "ERROR: No .xcodeproj found"
             exit 1
           fi
-          echo "Found project: $PROJECT_PATH"
           
-          # Get the scheme name
+          # Get scheme
           SCHEME=$(xcodebuild -list -project "$PROJECT_PATH" | grep -A 1 "Schemes:" | tail -1 | xargs)
-          echo "Using scheme: $SCHEME"
+          echo "Building scheme: $SCHEME"
           
-          # Set variables for later use
-          echo "PROJECT_PATH=$PROJECT_PATH" >> $CM_ENV
-          echo "SCHEME=$SCHEME" >> $CM_ENV
-
-      - name: Archive and export IPA
-        script: |
-          set -euo pipefail
-          
-          # Build archive
+          # Build unsigned archive
           xcodebuild archive \
             -project "$PROJECT_PATH" \
             -scheme "$SCHEME" \
             -configuration Release \
             -archivePath ./build/ShadingTrigger.xcarchive \
-            -allowProvisioningUpdates \
-            CODE_SIGN_STYLE=Automatic \
-            DEVELOPMENT_TEAM=YOUR_TEAM_ID
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            EXPANDED_CODE_SIGN_IDENTITY=""
           
-          # Export IPA
+          # Create export options for unsigned
           cat > ExportOptions.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,13 +43,14 @@ workflows:
               <key>method</key>
               <string>development</string>
               <key>signingStyle</key>
-              <string>automatic</string>
+              <string>manual</string>
               <key>teamID</key>
-              <string>YOUR_TEAM_ID</string>
+              <string></string>
           </dict>
           </plist>
           EOF
           
+          # Export unsigned IPA
           xcodebuild -exportArchive \
             -archivePath ./build/ShadingTrigger.xcarchive \
             -exportPath ./build \
