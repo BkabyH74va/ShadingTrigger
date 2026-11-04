@@ -1,6 +1,6 @@
 workflows:
-  ios-build:
-    name: Build unsigned iOS IPA
+  ios-ipa:
+    name: iOS IPA
     max_build_duration: 60
     instance_type: mac_mini_m2
 
@@ -8,53 +8,19 @@ workflows:
       xcode: latest
 
     scripts:
-      - name: Build unsigned IPA
+      - name: Find Xcode project
         script: |
-          set -euo pipefail
-          
-          # Find project
-          PROJECT_PATH=$(find . -maxdepth 3 -name '*.xcodeproj' -print -quit)
+          set -e
+          PROJECT_PATH="$(find . -maxdepth 3 -name '*.xcodeproj' -print -quit)"
           if [ -z "$PROJECT_PATH" ]; then
-            echo "ERROR: No .xcodeproj found"
+            echo "ERROR: No .xcodeproj found. Add a complete iOS Xcode project to the repository first."
             exit 1
           fi
-          
-          # Get scheme
-          SCHEME=$(xcodebuild -list -project "$PROJECT_PATH" | grep -A 1 "Schemes:" | tail -1 | xargs)
-          echo "Building scheme: $SCHEME"
-          
-          # Build unsigned archive
-          xcodebuild archive \
-            -project "$PROJECT_PATH" \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -archivePath ./build/ShadingTrigger.xcarchive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            EXPANDED_CODE_SIGN_IDENTITY=""
-          
-          # Create export options for unsigned
-          cat > ExportOptions.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>development</string>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>teamID</key>
-              <string></string>
-          </dict>
-          </plist>
-          EOF
-          
-          # Export unsigned IPA
-          xcodebuild -exportArchive \
-            -archivePath ./build/ShadingTrigger.xcarchive \
-            -exportPath ./build \
-            -exportOptionsPlist ExportOptions.plist
+          PROJECT_NAME="$(basename "$PROJECT_PATH" .xcodeproj)"
+          echo "Using project: $PROJECT_PATH"
+          echo "Using scheme: $PROJECT_NAME"
+          xcode-project build-ipa --project "$PROJECT_PATH" --scheme "$PROJECT_NAME"
 
     artifacts:
-      - build/ShadingTrigger.ipa
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
